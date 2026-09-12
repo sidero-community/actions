@@ -17,7 +17,15 @@ import (
 // networking. Field names and JSON tags follow the Hardware CRD.
 type Spec struct {
 	Interfaces []Interface `json:"interfaces,omitempty"`
+	Disks      []Disk      `json:"disks,omitempty"`
 	Metadata   *Metadata   `json:"metadata,omitempty"`
+	// UserData is the machine configuration served to the node. It is never logged.
+	UserData *string `json:"userData,omitempty"`
+}
+
+// Disk is a block device declared on the Hardware.
+type Disk struct {
+	Device string `json:"device,omitempty"`
 }
 
 // Interface is one network interface of the machine.
@@ -60,9 +68,19 @@ type Metadata struct {
 
 // Instance describes the provisioned instance.
 type Instance struct {
-	ID       string       `json:"id,omitempty"`
-	Hostname string       `json:"hostname,omitempty"`
-	IPs      []InstanceIP `json:"ips,omitempty"`
+	ID              string           `json:"id,omitempty"`
+	Hostname        string           `json:"hostname,omitempty"`
+	IPs             []InstanceIP     `json:"ips,omitempty"`
+	OperatingSystem *OperatingSystem `json:"operating_system,omitempty"`
+}
+
+// OperatingSystem is the image identity the resolver writes onto the Hardware.
+type OperatingSystem struct {
+	Slug     string `json:"slug,omitempty"`
+	Distro   string `json:"distro,omitempty"`
+	Version  string `json:"version,omitempty"`
+	ImageTag string `json:"image_tag,omitempty"`
+	OsSlug   string `json:"os_slug,omitempty"`
 }
 
 // InstanceIP is an address listed on the instance.
