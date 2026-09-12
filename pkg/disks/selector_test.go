@@ -58,9 +58,16 @@ func TestSizeMatcherOps(t *testing.T) {
 		size uint64
 		want bool
 	}{
-		{">=", 100, true}, {">=", 99, false}, {"<=", 100, true}, {"<=", 101, false},
-		{">", 100, false}, {">", 101, true}, {"<", 100, false}, {"<", 99, true},
-		{"==", 100, true}, {"==", 101, false},
+		{">=", 100, true},
+		{">=", 99, false},
+		{"<=", 100, true},
+		{"<=", 101, false},
+		{">", 100, false},
+		{">", 101, true},
+		{"<", 100, false},
+		{"<", 99, true},
+		{"==", 100, true},
+		{"==", 101, false},
 	} {
 		if got := (SizeMatcher{Op: tt.op, Size: 100}).Match(tt.size); got != tt.want {
 			t.Errorf("%s 100 with %d = %v", tt.op, tt.size, got)

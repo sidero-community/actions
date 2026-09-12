@@ -26,13 +26,16 @@ $(SHELLCHECK_BIN):
 	mv out/linters/shellcheck-$(SHELLCHECK_VERSION)/shellcheck $@
 	rm -rf out/linters/shellcheck-$(SHELLCHECK_VERSION)/shellcheck
 
+# The repository may hold no shell scripts; shellcheck errors when given no files.
+SHELL_SCRIPTS := $(shell find . -path ./out -prune -o -name "*.sh" -print)
+
 LINTERS += shellcheck-lint
 shellcheck-lint: $(SHELLCHECK_BIN)
-	$(SHELLCHECK_BIN) $(shell find . -name "*.sh")
+	@if [ -n "$(SHELL_SCRIPTS)" ]; then $(SHELLCHECK_BIN) $(SHELL_SCRIPTS); else echo "shellcheck: no shell scripts to check"; fi
 
 FIXERS += shellcheck-fix
 shellcheck-fix: $(SHELLCHECK_BIN)
-	$(SHELLCHECK_BIN) $(shell find . -name "*.sh") -f diff | { read -t 1 line || exit 0; { echo "$$line" && cat; } | git apply -p2; }
+	@if [ -n "$(SHELL_SCRIPTS)" ]; then $(SHELLCHECK_BIN) $(SHELL_SCRIPTS) -f diff | { read -t 1 line || exit 0; { echo "$$line" && cat; } | git apply -p2; }; fi
 
 HADOLINT_VERSION ?= v2.14.0
 HADOLINT_BIN := out/linters/hadolint-$(HADOLINT_VERSION)-$(LINT_ARCH)
@@ -59,13 +62,18 @@ $(GOLANGCI_LINT_BIN):
 	mv out/linters/$(GOLANGCI_LINT_DIST)/golangci-lint $@
 	rm -rf out/linters/$(GOLANGCI_LINT_DIST)
 
+# golangci-lint typechecks against the Go toolchain it finds; pin it to the
+# go.mod version so a newer system Go does not make the standard library
+# itself fail to typecheck.
+GO_MOD_TOOLCHAIN := go$(shell sed -n 's/^go //p' $(LINT_ROOT)/go.mod)
+
 LINTERS += golangci-lint-lint
 golangci-lint-lint: $(GOLANGCI_LINT_BIN)
-	@find . -name go.mod -execdir sh -c '"$(GOLANGCI_LINT_BIN)" run -c "$(GOLANGCI_LINT_CONFIG)" | sed "/\.go:[0-9]\+:/ s|^|$$(pwd)/|"' \;
+	cd $(LINT_ROOT) && GOTOOLCHAIN=$(GO_MOD_TOOLCHAIN) "$(GOLANGCI_LINT_BIN)" run -c "$(GOLANGCI_LINT_CONFIG)"
 
 FIXERS += golangci-lint-fix
 golangci-lint-fix: $(GOLANGCI_LINT_BIN)
-	find . -name go.mod -execdir "$(GOLANGCI_LINT_BIN)" run -c "$(GOLANGCI_LINT_CONFIG)" --fix \;
+	cd $(LINT_ROOT) && GOTOOLCHAIN=$(GO_MOD_TOOLCHAIN) "$(GOLANGCI_LINT_BIN)" run -c "$(GOLANGCI_LINT_CONFIG)" --fix
 
 YAMLLINT_VERSION ?= 1.38.0
 YAMLLINT_ROOT := out/linters

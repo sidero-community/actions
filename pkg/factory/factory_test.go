@@ -153,7 +153,7 @@ func TestParseInstallerReference(t *testing.T) {
 		"factory.example.test/metal-installer/" + testID:           testID,
 		"ghcr.io/siderolabs/installer:v1.14.1":                     "",
 		"factory.talos.dev/metal-installer/short:v1.14.1":          "",
-		"":                                                          "",
+		"": "",
 	} {
 		id, ok := ParseInstallerReference(ref)
 		if id != want || ok != (want != "") {

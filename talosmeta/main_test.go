@@ -12,7 +12,6 @@ import (
 
 	diskfs "github.com/diskfs/go-diskfs"
 	"github.com/diskfs/go-diskfs/partition/gpt"
-
 	"github.com/sidero-community/actions/pkg/meta"
 )
 

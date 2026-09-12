@@ -23,6 +23,12 @@ const (
 	TypeSD   = "sd"
 )
 
+// Transports the type selector maps onto, as go-blockdevice reports them.
+const (
+	TransportNVMe = "nvme"
+	TransportMMC  = "mmc"
+)
+
 // DefaultSelectorDocument is used when nothing else selects a disk.
 const DefaultSelectorDocument = `{ "size": ">= 100GB" }`
 
@@ -173,8 +179,12 @@ func (s *Selector) Match(d Disk) bool {
 	}
 
 	for _, f := range []struct{ pattern, value string }{
-		{s.Model, d.Model}, {s.Serial, d.Serial}, {s.Modalias, d.Modalias},
-		{s.UUID, d.UUID}, {s.WWID, d.WWID}, {s.BusPath, d.BusPath},
+		{s.Model, d.Model},
+		{s.Serial, d.Serial},
+		{s.Modalias, d.Modalias},
+		{s.UUID, d.UUID},
+		{s.WWID, d.WWID},
+		{s.BusPath, d.BusPath},
 	} {
 		if f.pattern != "" && !glob.Glob(f.pattern, f.value) {
 			return false
@@ -183,9 +193,9 @@ func (s *Selector) Match(d Disk) bool {
 
 	switch s.Type {
 	case TypeNVMe:
-		return d.Transport == "nvme"
+		return d.Transport == TransportNVMe
 	case TypeSD:
-		return d.Transport == "mmc"
+		return d.Transport == TransportMMC
 	case TypeHDD:
 		return d.Rotational
 	case TypeSSD:

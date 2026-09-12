@@ -12,7 +12,7 @@ func overrideSpec() *hardware.Spec {
 		Interfaces: []hardware.Interface{{DHCP: &hardware.DHCP{
 			MAC: "52:54:00:12:34:01", IfaceName: "eth0", Hostname: "dhcp-name", DomainName: "dhcp.example",
 			NameServers: []string{"10.0.0.2"}, TimeServers: []string{"10.0.0.3"},
-			IP:          &hardware.IP{Address: "10.0.80.10", Netmask: "255.255.255.0", Gateway: "10.0.80.1", Family: 4},
+			IP: &hardware.IP{Address: "10.0.80.10", Netmask: "255.255.255.0", Gateway: "10.0.80.1", Family: 4},
 		}}},
 		Metadata: &hardware.Metadata{Instance: &hardware.Instance{Hostname: "inst.example.com"}},
 	}

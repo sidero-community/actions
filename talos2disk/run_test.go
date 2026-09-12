@@ -20,7 +20,6 @@ import (
 	diskfs "github.com/diskfs/go-diskfs"
 	"github.com/diskfs/go-diskfs/partition/gpt"
 	"github.com/klauspost/compress/zstd"
-
 	"github.com/sidero-community/actions/pkg/disks"
 	"github.com/sidero-community/actions/pkg/hardware"
 	"github.com/sidero-community/actions/pkg/meta"
@@ -192,9 +191,11 @@ func newFixture(t *testing.T) *fixture {
 			SysRoot: f.sysRoot, Wait: 10 * time.Millisecond, Poll: time.Millisecond, PrivateDir: filepath.Join(root, "nodes"),
 			Mknod: func(path string, _, _ uint32) error { return os.WriteFile(path, nil, 0o600) },
 		},
-		Arch:  "amd64",
-		Namer: func(kernelNames bool) talosnet.Namer { return &talosnet.SysfsNamer{Root: f.sysRoot, Predictable: !kernelNames} },
-		Kube:  func(string) (HardwarePatcher, error) { return f.patcher, nil },
+		Arch: "amd64",
+		Namer: func(kernelNames bool) talosnet.Namer {
+			return &talosnet.SysfsNamer{Root: f.sysRoot, Predictable: !kernelNames}
+		},
+		Kube: func(string) (HardwarePatcher, error) { return f.patcher, nil },
 	}
 	return f
 }

@@ -79,7 +79,7 @@ func writeKubeconfig(t *testing.T, server string) string {
 func TestPatchHardwareSendsMergePatch(t *testing.T) {
 	var (
 		gotMethod, gotPath, gotContentType, gotManager string
-		gotBody                                          []byte
+		gotBody                                        []byte
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod, gotPath, gotContentType, gotManager = r.Method, r.URL.Path, r.Header.Get("Content-Type"), r.URL.Query().Get("fieldManager")

@@ -40,6 +40,13 @@ const (
 	VendorNVIDIA = "nvidia"
 )
 
+// Fact sources recorded in Facts.Sources.
+const (
+	SourceLocal     = "local"
+	SourceOutOfBand = "out-of-band"
+	SourceNone      = "none"
+)
+
 // Arch is the Talos architecture name of the machine the action runs on.
 func Arch() string {
 	return runtime.GOARCH
@@ -120,10 +127,13 @@ func GPUVendors(sysRoot string) ([]string, error) {
 	return out, nil
 }
 
-// HasNVMe reports whether "nvme" is among the disk transports.
+// TransportNVMe is the go-blockdevice transport name of NVMe disks.
+const TransportNVMe = "nvme"
+
+// HasNVMe reports whether the NVMe transport is among the disk transports.
 func HasNVMe(transports []string) bool {
 	for _, t := range transports {
-		if t == "nvme" {
+		if t == TransportNVMe {
 			return true
 		}
 	}
@@ -196,29 +206,29 @@ func Gather(local Local, oob OutOfBand) Facts {
 
 	switch {
 	case local.CPUVendor != "":
-		f.CPUVendor, f.Sources["cpu"] = local.CPUVendor, "local"
+		f.CPUVendor, f.Sources["cpu"] = local.CPUVendor, SourceLocal
 	case oob.CPUVendor != "":
-		f.CPUVendor, f.Sources["cpu"] = oob.CPUVendor, "out-of-band"
+		f.CPUVendor, f.Sources["cpu"] = oob.CPUVendor, SourceOutOfBand
 	default:
-		f.Sources["cpu"] = "none"
+		f.Sources["cpu"] = SourceNone
 	}
 
 	switch {
 	case len(local.GPUVendors) > 0:
-		f.GPUVendors, f.Sources["gpu"] = local.GPUVendors, "local"
+		f.GPUVendors, f.Sources["gpu"] = local.GPUVendors, SourceLocal
 	case len(oob.GPUVendors) > 0:
-		f.GPUVendors, f.Sources["gpu"] = oob.GPUVendors, "out-of-band"
+		f.GPUVendors, f.Sources["gpu"] = oob.GPUVendors, SourceOutOfBand
 	default:
-		f.Sources["gpu"] = "none"
+		f.Sources["gpu"] = SourceNone
 	}
 
 	switch {
 	case local.NVMe:
-		f.NVMe, f.Sources["nvme"] = true, "local"
+		f.NVMe, f.Sources["nvme"] = true, SourceLocal
 	case oob.NVMe:
-		f.NVMe, f.Sources["nvme"] = true, "out-of-band"
+		f.NVMe, f.Sources["nvme"] = true, SourceOutOfBand
 	default:
-		f.Sources["nvme"] = "none"
+		f.Sources["nvme"] = SourceNone
 	}
 
 	return f

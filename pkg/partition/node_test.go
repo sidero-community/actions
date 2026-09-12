@@ -40,12 +40,12 @@ func TestEnsureNodeFallsBackToMknodFromSysfs(t *testing.T) {
 	if err := os.MkdirAll(devDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	real := filepath.Join(devDir, "sda")
-	if err := os.WriteFile(real, nil, 0o600); err != nil {
+	target := filepath.Join(devDir, "sda")
+	if err := os.WriteFile(target, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(devDir, "by-id-link")
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
 	sysRoot := filepath.Join(dir, "sys")

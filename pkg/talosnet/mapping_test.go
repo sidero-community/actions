@@ -6,9 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"go.yaml.in/yaml/v3"
-
 	"github.com/sidero-community/actions/pkg/hardware"
+	"go.yaml.in/yaml/v3"
 )
 
 type staticNamer map[string]string

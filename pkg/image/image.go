@@ -50,7 +50,7 @@ func Write(ctx context.Context, client *http.Client, url, device string, opts Op
 		return 0, err
 	}
 
-	res, err := client.Do(req)
+	res, err := client.Do(req) //nolint:bodyclose // closed by the deferred res.Body.Close below; the linter loses track through the counter wrapper
 	if err != nil {
 		return 0, fmt.Errorf("downloading %s: %w", url, err)
 	}

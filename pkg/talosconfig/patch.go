@@ -10,6 +10,13 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+// YAML node tags used when building nodes.
+const (
+	tagStr = "!!str"
+	tagMap = "!!map"
+	tagSeq = "!!seq"
+)
+
 // Overrides are the machine configuration edits talos2disk applies and writes back.
 type Overrides struct {
 	// InstallImage replaces machine.install.image.
@@ -42,9 +49,7 @@ func Patch(userData string, o Overrides) (patched, patchDoc string, err error) {
 		}
 
 		if isMachineConfig(&node) {
-			if err := apply(&node, o); err != nil {
-				return "", "", err
-			}
+			apply(&node, o)
 
 			found = true
 		}
@@ -135,7 +140,7 @@ func isMachineConfig(doc *yaml.Node) bool {
 	return version != nil && version.Value == "v1alpha1" && mappingGet(root, "machine") != nil
 }
 
-func apply(doc *yaml.Node, o Overrides) error {
+func apply(doc *yaml.Node, o Overrides) {
 	root := mappingRoot(doc)
 	machine := mappingEnsure(root, "machine")
 
@@ -149,8 +154,8 @@ func apply(doc *yaml.Node, o Overrides) error {
 		modules := mappingGet(kernel, "modules")
 
 		if modules == nil || modules.Kind != yaml.SequenceNode {
-			modules = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-			kernel.Content = append(kernel.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "modules"}, modules)
+			modules = &yaml.Node{Kind: yaml.SequenceNode, Tag: tagSeq}
+			kernel.Content = append(kernel.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: "modules"}, modules)
 		}
 
 		present := map[string]bool{}
@@ -169,16 +174,14 @@ func apply(doc *yaml.Node, o Overrides) error {
 			present[name] = true
 			modules.Content = append(modules.Content, &yaml.Node{
 				Kind: yaml.MappingNode,
-				Tag:  "!!map",
+				Tag:  tagMap,
 				Content: []*yaml.Node{
-					{Kind: yaml.ScalarNode, Tag: "!!str", Value: "name"},
-					{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
+					{Kind: yaml.ScalarNode, Tag: tagStr, Value: "name"},
+					{Kind: yaml.ScalarNode, Tag: tagStr, Value: name},
 				},
 			})
 		}
 	}
-
-	return nil
 }
 
 // mappingRoot returns the mapping node of a document, or nil.
@@ -218,15 +221,15 @@ func mappingEnsure(m *yaml.Node, key string) *yaml.Node {
 		}
 
 		v.Kind = yaml.MappingNode
-		v.Tag = "!!map"
+		v.Tag = tagMap
 		v.Value = ""
 		v.Content = nil
 
 		return v
 	}
 
-	v := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, v)
+	v := &yaml.Node{Kind: yaml.MappingNode, Tag: tagMap}
+	m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: key}, v)
 
 	return v
 }
@@ -234,7 +237,7 @@ func mappingEnsure(m *yaml.Node, key string) *yaml.Node {
 func setScalar(m *yaml.Node, key, value string) {
 	if v := mappingGet(m, key); v != nil {
 		v.Kind = yaml.ScalarNode
-		v.Tag = "!!str"
+		v.Tag = tagStr
 		v.Value = value
 		v.Content = nil
 
@@ -242,7 +245,7 @@ func setScalar(m *yaml.Node, key, value string) {
 	}
 
 	m.Content = append(m.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: tagStr, Value: value},
 	)
 }
