@@ -16,11 +16,42 @@ type Namer interface {
 	Name(mac string) (string, error)
 }
 
+// Overrides take precedence over the corresponding values found in the
+// Hardware data. talos2disk fills them from the Talos machine configuration.
+type Overrides struct {
+	Hostname    string
+	Nameservers []string
+	TimeServers []string
+}
+
 // FromHardware maps Tinkerbell Hardware data onto a Talos platform network
 // configuration. Every interface with a static address becomes a link, an
 // address and, when a gateway is set, a default route. Hostname, resolvers,
 // time servers and external IPs are collected once for the machine.
 func FromHardware(spec *hardware.Spec, namer Namer) (*Config, error) {
+	return FromHardwareWithOverrides(spec, namer, Overrides{})
+}
+
+// HasStaticAddress reports whether any interface carries a static address,
+// which is what makes a META network document worth writing.
+func HasStaticAddress(spec *hardware.Spec) bool {
+	if spec == nil {
+		return false
+	}
+
+	for _, iface := range spec.Interfaces {
+		if iface.DHCP != nil && iface.DHCP.IP != nil && iface.DHCP.IP.Address != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// FromHardwareWithOverrides is FromHardware with o applied on top: a
+// non-empty override replaces the hostname, the resolver list or the time
+// server list derived from the Hardware.
+func FromHardwareWithOverrides(spec *hardware.Spec, namer Namer, o Overrides) (*Config, error) {
 	cfg := newConfig()
 
 	var (
@@ -75,6 +106,24 @@ func FromHardware(spec *hardware.Spec, namer Namer) (*Config, error) {
 
 			cfg.ExternalIPs = appendUnique(cfg.ExternalIPs, addr.String())
 		}
+	}
+
+	if o.Hostname != "" {
+		hostname = o.Hostname
+
+		// A fully qualified override carries its own domain; a bare name keeps
+		// the domain the DHCP data supplied.
+		if strings.Contains(o.Hostname, ".") {
+			domain = ""
+		}
+	}
+
+	if len(o.Nameservers) > 0 {
+		nameServers = appendUnique(nil, o.Nameservers...)
+	}
+
+	if len(o.TimeServers) > 0 {
+		timeServers = appendUnique(nil, o.TimeServers...)
 	}
 
 	if hostname != "" {
