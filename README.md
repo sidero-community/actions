@@ -6,7 +6,7 @@ They compose into Tinkerbell Workflows the same way the upstream
 
 | Name | Description |
 | --- | --- |
-| [talos2disk](/talos2disk/)       | Install Talos from the Image Factory: select the disk, register the schematic, write the image, stamp kernel arguments, write network configuration to META |
+| [talos2disk](/talos2disk/)       | Install Talos from the Image Factory: select the disk, write the image for the schematic named in the machine configuration, stamp kernel arguments, write network configuration to META |
 | [taloscmdline](/taloscmdline/)   | Set kernel arguments in Talos Linux unified kernel images |
 | [talosmeta](/talosmeta/)         | Write Talos Linux network configuration to the META partition |
 

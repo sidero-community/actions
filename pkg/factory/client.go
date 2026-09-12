@@ -1,7 +1,8 @@
+// Package factory talks to the Talos Image Factory: version listing and image
+// URLs for a schematic the machine configuration already names.
 package factory
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,61 +39,6 @@ func NewClient(baseURL string, httpClient *http.Client) (*Client, error) {
 	return &Client{baseURL: strings.TrimRight(u.String(), "/"), http: httpClient}, nil
 }
 
-// Registration is the response of POST /schematics.
-type Registration struct {
-	ID string `json:"id"`
-	// Schematic is the canonical body the Factory stored; it is authoritative.
-	Schematic string `json:"schematic"`
-}
-
-// CreateSchematic registers s. The Factory computes the content-addressed
-// ID, so registering the same schematic twice returns the same ID.
-func (c *Client) CreateSchematic(ctx context.Context, s Schematic) (Registration, error) {
-	body, err := s.Marshal()
-	if err != nil {
-		return Registration{}, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/schematics", bytes.NewReader(body))
-	if err != nil {
-		return Registration{}, err
-	}
-
-	req.Header.Set("Content-Type", "application/yaml")
-	req.Header.Set("Accept", "application/json")
-
-	raw, err := c.do(req)
-	if err != nil {
-		return Registration{}, fmt.Errorf("registering schematic: %w", err)
-	}
-
-	var reg Registration
-	if err := json.Unmarshal(raw, &reg); err != nil {
-		return Registration{}, fmt.Errorf("decoding schematic registration: %w", err)
-	}
-
-	if reg.ID == "" {
-		return Registration{}, fmt.Errorf("factory returned no schematic ID: %s", strings.TrimSpace(string(raw)))
-	}
-
-	return reg, nil
-}
-
-// GetSchematic fetches a stored schematic by ID.
-func (c *Client) GetSchematic(ctx context.Context, id string) (Schematic, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/schematics/"+url.PathEscape(id), nil)
-	if err != nil {
-		return Schematic{}, err
-	}
-
-	raw, err := c.do(req)
-	if err != nil {
-		return Schematic{}, fmt.Errorf("fetching schematic %s: %w", id, err)
-	}
-
-	return ParseSchematic(raw)
-}
-
 // Versions lists the Talos versions the Factory serves, excluding those it
 // marks broken.
 func (c *Client) Versions(ctx context.Context) ([]string, error) {
@@ -117,13 +63,6 @@ func (c *Client) Versions(ctx context.Context) ([]string, error) {
 // ImageURL is the download URL of the raw metal disk image.
 func (c *Client) ImageURL(id, version, arch string) string {
 	return fmt.Sprintf("%s/image/%s/%s/metal-%s.raw.zst", c.baseURL, id, version, arch)
-}
-
-// InstallerImage is the installer reference for machine.install.image.
-func (c *Client) InstallerImage(id, version string) string {
-	host := strings.TrimPrefix(strings.TrimPrefix(c.baseURL, "https://"), "http://")
-
-	return fmt.Sprintf("%s/metal-installer/%s:%s", host, id, version)
 }
 
 func (c *Client) do(req *http.Request) ([]byte, error) {

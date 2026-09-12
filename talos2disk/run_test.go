@@ -19,7 +19,6 @@ import (
 	diskfs "github.com/diskfs/go-diskfs"
 	"github.com/diskfs/go-diskfs/partition/gpt"
 	"github.com/klauspost/compress/zstd"
-
 	"github.com/sidero-community/actions/pkg/disks"
 	"github.com/sidero-community/actions/pkg/meta"
 	"github.com/sidero-community/actions/pkg/partition"

@@ -44,14 +44,30 @@ func TestSchematicAndFactoryChain(t *testing.T) {
 		wantURL, wantURLSource   string
 		wantVersion, wantVSource string
 	}{
-		{"env wins", Inputs{SchematicID: envID, FactoryURL: "http://mirror:8080/"}, withOS(hw(nil), hwID, "v1.13.9"), cfg,
-			envID, "SCHEMATIC_ID", "http://mirror:8080", "FACTORY_URL", "v1.14.1", "machine.install.image"},
-		{"config reference", Inputs{}, withOS(hw(nil), hwID, "v1.13.9"), cfg,
-			cfgID, "machine.install.image", "https://factory.example.test:8443", "machine.install.image", "v1.14.1", "machine.install.image"},
-		{"hardware fallback", Inputs{}, withOS(hw(nil), hwID, "v1.13.9"), nil,
-			hwID, "metadata.instance.operating_system.slug", "https://factory.talos.dev", "default", "v1.13.9", "metadata.instance.operating_system.version"},
-		{"non-factory image keeps tag only", Inputs{}, withOS(hw(nil), hwID, "v1.13.9"), cfgWithImage("ghcr.io/siderolabs/installer:v1.14.0"),
-			hwID, "metadata.instance.operating_system.slug", "https://factory.talos.dev", "default", "v1.14.0", "machine.install.image"},
+		{
+			"env wins",
+			Inputs{SchematicID: envID, FactoryURL: "http://mirror:8080/"},
+			withOS(hw(nil), hwID, "v1.13.9"), cfg,
+			envID, "SCHEMATIC_ID", "http://mirror:8080", "FACTORY_URL", "v1.14.1", "machine.install.image",
+		},
+		{
+			"config reference",
+			Inputs{},
+			withOS(hw(nil), hwID, "v1.13.9"), cfg,
+			cfgID, "machine.install.image", "https://factory.example.test:8443", "machine.install.image", "v1.14.1", "machine.install.image",
+		},
+		{
+			"hardware fallback",
+			Inputs{},
+			withOS(hw(nil), hwID, "v1.13.9"), nil,
+			hwID, "metadata.instance.operating_system.slug", "https://factory.talos.dev", "default", "v1.13.9", "metadata.instance.operating_system.version",
+		},
+		{
+			"non-factory image keeps tag only",
+			Inputs{},
+			withOS(hw(nil), hwID, "v1.13.9"), cfgWithImage("ghcr.io/siderolabs/installer:v1.14.0"),
+			hwID, "metadata.instance.operating_system.slug", "https://factory.talos.dev", "default", "v1.14.0", "machine.install.image",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

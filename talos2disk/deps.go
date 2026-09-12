@@ -3,9 +3,9 @@ package main
 import (
 	"log/slog"
 	"net/http"
+	"runtime"
 
 	"github.com/sidero-community/actions/pkg/cmdline"
-	"github.com/sidero-community/actions/pkg/detect"
 	"github.com/sidero-community/actions/pkg/disks"
 	"github.com/sidero-community/actions/pkg/partition"
 	"github.com/sidero-community/actions/pkg/talosnet"
@@ -36,7 +36,7 @@ func defaultDeps(logger *slog.Logger) Deps {
 		Mounter:    cmdline.VFAT{},
 		MountPoint: cmdline.DefaultMountPoint,
 		Nodes:      partition.NodeOptions{},
-		Arch:       detect.Arch(),
+		Arch:       runtime.GOARCH,
 		Namer: func(kernelNames bool) talosnet.Namer {
 			return &talosnet.SysfsNamer{Predictable: !kernelNames, Logger: logger}
 		},

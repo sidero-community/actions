@@ -39,6 +39,12 @@ type Settings struct {
 
 var schematicID = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+// Setting sources reported in the plan, so an operator can see which layer won.
+const (
+	sourceDefault      = "default"
+	sourceInstallImage = "machine.install.image"
+)
+
 func resolveSettings(in Inputs, hw *hardware.Hardware, cfg *talosconfig.Config) (Settings, error) {
 	var (
 		s   Settings
@@ -97,7 +103,7 @@ func resolveDisk(in Inputs, hw *hardware.Hardware, cfg *talosconfig.Config) (Dis
 	case hw.FirstDisk() != "":
 		return DiskChoice{Path: hw.FirstDisk(), Source: "spec.disks[0].device"}, nil
 	default:
-		return DiskChoice{Selector: disks.DefaultSelector(), Source: "default"}, nil
+		return DiskChoice{Selector: disks.DefaultSelector(), Source: sourceDefault}, nil
 	}
 }
 
@@ -113,7 +119,7 @@ func resolveSchematic(in Inputs, hw *hardware.Hardware, ref factory.InstallerRef
 	}
 
 	if ref.ID != "" {
-		return ref.ID, "machine.install.image", nil
+		return ref.ID, sourceInstallImage, nil
 	}
 
 	if slug := hw.OperatingSystemSlug(); slug != "" {
@@ -126,7 +132,7 @@ func resolveSchematic(in Inputs, hw *hardware.Hardware, ref factory.InstallerRef
 func resolveVersion(in Inputs, hw *hardware.Hardware, cfg *talosconfig.Config) (string, string, error) {
 	candidates := []struct{ value, source string }{
 		{in.TalosVersion, "TALOS_VERSION"},
-		{cfg.ImageTag(), "machine.install.image"},
+		{cfg.ImageTag(), sourceInstallImage},
 		{hw.OperatingSystemVersion(), "metadata.instance.operating_system.version"},
 		{hw.Annotation(hardware.AnnotationContract), hardware.AnnotationContract},
 	}
@@ -154,8 +160,8 @@ func resolveFactoryURL(in Inputs, ref factory.InstallerReference) (string, strin
 	}
 
 	if ref.Host != "" {
-		return "https://" + ref.Host, "machine.install.image"
+		return "https://" + ref.Host, sourceInstallImage
 	}
 
-	return factory.DefaultURL, "default"
+	return factory.DefaultURL, sourceDefault
 }
