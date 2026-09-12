@@ -1,0 +1,46 @@
+name: Release
+on:
+  push:
+    branches:
+      - "main"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: Release
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        action:
+          - talos2disk
+          - taloscmdline
+          - talosmeta
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Prepare Release
+        run: make prepare-release
+        env:
+          CONTAINER_REPOSITORY: ghcr.io/${{ github.repository }}
+
+      - name: Run Release
+        run: make release-${{ matrix.action }} -j $(nproc)
+        env:
+          CONTAINER_REPOSITORY: ghcr.io/${{ github.repository }}

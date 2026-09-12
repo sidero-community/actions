@@ -1,0 +1,173 @@
+version: "2"
+run:
+  # The default runtime timeout is 1m, which doesn't work well on GitHub Actions.
+  timeout: 4m
+linters:
+  default: none
+  enable:
+    - asciicheck
+    - bodyclose
+    - cyclop
+    - dogsled
+    - dupl
+    - durationcheck
+    - errcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - forcetypeassert
+    - gocognit
+    - goconst
+    - gocritic
+    - godot
+    - goheader
+    - goprintffuncname
+    - gosec
+    - govet
+    - importas
+    - ineffassign
+    - makezero
+    - misspell
+    - nakedret
+    - nestif
+    - nilerr
+    - noctx
+    - nolintlint
+    - predeclared
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - unused
+    - wastedassign
+    - whitespace
+  settings:
+    cyclop:
+      max-complexity: 37
+      package-average: 34
+    dupl:
+      threshold: 200
+    errorlint:
+      asserts: false
+    exhaustive:
+      default-signifies-exhaustive: true
+    gocognit:
+      min-complexity: 98
+    goconst:
+      min-len: 4
+      min-occurrences: 5
+    gosec:
+      excludes:
+        - G107 # Potential HTTP request made with variable url
+        - G110 # Decompression bomb (we intentionally extract user-supplied archives)
+        - G114 # http.ListenAndServe without timeouts (slurp dev server)
+        - G115 # integer overflow conversion (sector/partition arithmetic is bounded)
+        - G120 # Unbounded form parsing (slurp dev server)
+        - G204 # Subprocess launched with function call as argument or cmd arguments
+        - G305 # File traversal when extracting archive (paths are sanitized by caller)
+        - G404 # Use of weak random number generator
+        - G702 # Command injection via taint analysis (CLI takes user-supplied paths by design)
+        - G703 # Path traversal via taint analysis (CLI takes user-supplied paths by design)
+        - G704 # SSRF via taint analysis (CLI takes user-supplied URLs by design)
+    nestif:
+      min-complexity: 15
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+    revive:
+      severity: warning
+      rules:
+        - name: atomic
+        - name: blank-imports
+        - name: bool-literal-in-expr
+        - name: confusing-naming
+        - name: constant-logical-expr
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: deep-exit
+        - name: defer
+        - name: range-val-in-closure
+        - name: range-val-address
+        - name: dot-imports
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+        - name: identical-branches
+        - name: if-return
+        - name: import-shadowing
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: struct-tag
+        - name: time-naming
+        - name: unexported-naming
+        - name: unexported-return
+        - name: unnecessary-stmt
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: var-declaration
+        - name: var-naming
+        - name: unconditional-recursion
+        - name: waitgroup-by-value
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - dupl
+          - errcheck
+          - forcetypeassert
+          - gocyclo
+          - gosec
+          - noctx
+        path: _test\.go
+      - linters:
+          - noctx
+        path: .*cmd.*
+      - linters:
+          - noctx
+        path: main\.go
+      - path: .*cmd.*
+        text: deep-exit
+      - path: main\.go
+        text: deep-exit
+      - linters:
+          - tparallel
+        text: call t.Parallel on the top level as well as its subtests
+      - linters:
+          - cyclop
+          - goconst
+        path: (.+)_test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
