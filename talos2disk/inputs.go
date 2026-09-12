@@ -6,27 +6,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/sidero-community/actions/pkg/detect"
-	"github.com/sidero-community/actions/pkg/factory"
 )
 
 // Inputs are the action's environment variables, parsed.
 type Inputs struct {
-	Hardware         string
-	TalosVersion     string
-	DiskSelector     string
-	KernelArgs       string
-	Extensions       string
-	Overlay          string
-	NVIDIAExtensions string
-	FactoryURL       string
-	NetworkConfig    string
-	LinkNaming       string
-	Kubeconfig       string
-	StripSignature   bool
-	RetryWindow      time.Duration
-	DryRun           bool
+	Hardware       string
+	SchematicID    string
+	TalosVersion   string
+	DiskSelector   string
+	KernelArgs     string
+	FactoryURL     string
+	NetworkConfig  string
+	LinkNaming     string
+	StripSignature bool
+	RetryWindow    time.Duration
+	DryRun         bool
 }
 
 const defaultRetryMinutes = 10
@@ -34,25 +28,13 @@ const defaultRetryMinutes = 10
 func inputsFromEnv() (Inputs, error) {
 	in := Inputs{
 		Hardware:      os.Getenv("HARDWARE"),
+		SchematicID:   strings.TrimSpace(os.Getenv("SCHEMATIC_ID")),
 		TalosVersion:  strings.TrimSpace(os.Getenv("TALOS_VERSION")),
 		DiskSelector:  strings.TrimSpace(os.Getenv("DISK_SELECTOR")),
 		KernelArgs:    strings.TrimSpace(os.Getenv("KERNEL_ARGS")),
-		Extensions:    os.Getenv("EXTENSIONS"),
-		Overlay:       strings.TrimSpace(os.Getenv("OVERLAY")),
 		FactoryURL:    strings.TrimSpace(os.Getenv("FACTORY_URL")),
 		NetworkConfig: os.Getenv("NETWORK_CONFIG"),
 		LinkNaming:    strings.TrimSpace(os.Getenv("LINK_NAMING")),
-		Kubeconfig:    strings.TrimSpace(os.Getenv("KUBECONFIG")),
-	}
-
-	if in.FactoryURL == "" {
-		in.FactoryURL = factory.DefaultURL
-	}
-
-	if v, ok := os.LookupEnv("NVIDIA_EXTENSIONS"); ok {
-		in.NVIDIAExtensions = v
-	} else {
-		in.NVIDIAExtensions = detect.DefaultNVIDIAExtensions
 	}
 
 	// Unparsable booleans mean false, as in the other actions.

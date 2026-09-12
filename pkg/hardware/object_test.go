@@ -60,6 +60,9 @@ func TestParseObject(t *testing.T) {
 	if len(hw.Spec.Interfaces) != 1 || hw.Spec.Interfaces[0].DHCP.IP.Address != "10.0.80.10" {
 		t.Fatalf("unexpected interfaces %+v", hw.Spec.Interfaces)
 	}
+	if hw.OperatingSystemSlug() != "abc" {
+		t.Fatalf("OperatingSystemSlug() = %q", hw.OperatingSystemSlug())
+	}
 }
 
 func TestParseObjectNilSafety(t *testing.T) {
@@ -67,7 +70,7 @@ func TestParseObjectNilSafety(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hw.FirstDisk() != "" || hw.UserData() != "" || hw.OperatingSystemVersion() != "" || hw.OutOfBand() != nil || hw.Annotation("x") != "" {
+	if hw.FirstDisk() != "" || hw.UserData() != "" || hw.OperatingSystemVersion() != "" || hw.OutOfBand() != nil || hw.Annotation("x") != "" || hw.OperatingSystemSlug() != "" {
 		t.Fatal("accessors on a bare object must return zero values")
 	}
 }

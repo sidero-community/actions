@@ -5,19 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/sidero-community/actions/pkg/cmdline"
-	"github.com/sidero-community/actions/pkg/detect"
 	"github.com/sidero-community/actions/pkg/disks"
 	"github.com/sidero-community/actions/pkg/factory"
 	"github.com/sidero-community/actions/pkg/hardware"
 	"github.com/sidero-community/actions/pkg/image"
-	"github.com/sidero-community/actions/pkg/kube"
 	"github.com/sidero-community/actions/pkg/meta"
 	"github.com/sidero-community/actions/pkg/partition"
 	"github.com/sidero-community/actions/pkg/talosconfig"
@@ -31,26 +28,16 @@ const (
 
 // Plan is everything decided before the first byte is written.
 type Plan struct {
-	Hardware              *hardware.Hardware
-	Settings              Settings
-	Disk                  disks.Disk
-	Candidates            []disks.Disk
-	Facts                 detect.Facts
-	Schematic             factory.Schematic
-	SchematicID           string
-	ConfiguredSchematicID string
-	DroppedOnUpgrade      []string
-	Version               string
-	ImageURL              string
-	InstallerImage        string
-	KernelArgs            string
-	KernelNames           bool
-	NetworkDoc            []byte
-	Overrides             talosconfig.Overrides
-	ConfigPatch           string
-	// PatchedUserData is the machine configuration with the overrides applied; nil
-	// when the Hardware carried none.
-	PatchedUserData *string
+	Hardware    *hardware.Hardware
+	Settings    Settings
+	Disk        disks.Disk
+	Candidates  []disks.Disk
+	SchematicID string
+	Version     string
+	ImageURL    string
+	KernelArgs  string
+	KernelNames bool
+	NetworkDoc  []byte
 }
 
 func run(ctx context.Context, in Inputs, deps Deps) error {
@@ -81,11 +68,7 @@ func run(ctx context.Context, in Inputs, deps Deps) error {
 		}
 	}
 
-	if in.Kubeconfig != "" && (hw.Metadata.Name == "" || hw.Metadata.Namespace == "") {
-		return errors.New("KUBECONFIG is set but HARDWARE carries no metadata.name and metadata.namespace to patch")
-	}
-
-	p, err := buildPlan(ctx, in, deps, hw, cfg, settings)
+	p, err := buildPlan(ctx, in, deps, hw, settings)
 	if err != nil {
 		return err
 	}
@@ -93,7 +76,7 @@ func run(ctx context.Context, in Inputs, deps Deps) error {
 	logPlan(logger, in, p)
 
 	if in.DryRun {
-		logger.Info("DRY_RUN is set; leaving the disk and the Hardware untouched")
+		logger.Info("DRY_RUN is set; leaving the disk untouched")
 
 		return nil
 	}
@@ -101,9 +84,9 @@ func run(ctx context.Context, in Inputs, deps Deps) error {
 	return execute(ctx, in, deps, p)
 }
 
-func buildPlan(ctx context.Context, in Inputs, deps Deps, hw *hardware.Hardware, cfg *talosconfig.Config, settings Settings) (*Plan, error) {
+func buildPlan(ctx context.Context, in Inputs, deps Deps, hw *hardware.Hardware, settings Settings) (*Plan, error) {
 	logger := deps.Logger
-	p := &Plan{Hardware: hw, Settings: settings}
+	p := &Plan{Hardware: hw, Settings: settings, SchematicID: settings.SchematicID}
 
 	enum, err := disks.Enumerate(deps.SysRoot, deps.DevRoot, deps.Prober)
 	if err != nil {
@@ -140,57 +123,16 @@ func buildPlan(ctx context.Context, in Inputs, deps Deps, hw *hardware.Hardware,
 
 	warnUnknownDisk(logger, hw, p.Disk)
 
-	local := detect.Local{Arch: deps.Arch, NVMe: detect.HasNVMe(disks.Transports(enum.Disks))}
-
-	if f, err := os.Open(filepath.Join(deps.ProcRoot, "cpuinfo")); err == nil {
-		local.CPUVendor = detect.CPUVendor(f)
-		_ = f.Close()
-	} else {
-		logger.Warn("Cannot read cpuinfo", "error", err)
-	}
-
-	if local.GPUVendors, err = detect.GPUVendors(deps.SysRoot); err != nil {
-		logger.Warn("Cannot list PCI devices", "error", err)
-	}
-
-	p.Facts = detect.Gather(local, detect.FromInventory(hw.OutOfBand()))
-	logger.Info("Detected machine facts", "arch", p.Facts.Arch, "cpuVendor", p.Facts.CPUVendor, "gpuVendors", p.Facts.GPUVendors, "nvme", p.Facts.NVMe, "sources", p.Facts.Sources)
-
-	extensions := append(detect.Extensions(p.Facts, settings.NVIDIA), settings.Extensions...)
-	p.Schematic = factory.Build(extensions, detect.Bootloader(p.Facts.Arch), settings.Overlay)
-
-	client, err := factory.NewClient(in.FactoryURL, deps.HTTP)
+	client, err := factory.NewClient(settings.FactoryURL, deps.HTTP)
 	if err != nil {
-		return nil, err
-	}
-
-	apiCtx, cancel := context.WithTimeout(ctx, apiTimeout)
-	defer cancel()
-
-	reg, err := client.CreateSchematic(apiCtx, p.Schematic)
-	if err != nil {
-		return nil, err
-	}
-
-	p.SchematicID = reg.ID
-	logger.Info("Registered schematic", "id", reg.ID, "extensions", p.Schematic.Extensions())
-	logger.Info("Canonical schematic:\n" + reg.Schematic)
-
-	if cfg != nil {
-		if id, ok := factory.ParseInstallerReference(cfg.Install.Image); ok && id != reg.ID {
-			p.ConfiguredSchematicID = id
-
-			configured, err := client.GetSchematic(apiCtx, id)
-			if err != nil {
-				logger.Warn("Cannot compare with the schematic named by machine.install.image", "id", id, "error", err)
-			} else if p.DroppedOnUpgrade = factory.MissingExtensions(p.Schematic, configured); len(p.DroppedOnUpgrade) > 0 {
-				logger.Warn("machine.install.image names a schematic without extensions this machine needs; the write-back replaces it", "configured", id, "missing", p.DroppedOnUpgrade)
-			}
-		}
+		return nil, fmt.Errorf("%s: %w", settings.FactoryURLSource, err)
 	}
 
 	p.Version = settings.Version
 	if factory.IsBareMinor(p.Version) {
+		apiCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+		defer cancel()
+
 		versions, err := client.Versions(apiCtx)
 		if err != nil {
 			return nil, err
@@ -202,8 +144,7 @@ func buildPlan(ctx context.Context, in Inputs, deps Deps, hw *hardware.Hardware,
 		}
 	}
 
-	p.ImageURL = client.ImageURL(reg.ID, p.Version, p.Facts.Arch)
-	p.InstallerImage = client.InstallerImage(reg.ID, p.Version)
+	p.ImageURL = client.ImageURL(p.SchematicID, p.Version, deps.Arch)
 
 	p.KernelArgs = settings.KernelArgs
 	p.KernelNames = slices.Contains(strings.Fields(p.KernelArgs), "net.ifnames=0")
@@ -230,22 +171,6 @@ func buildPlan(ctx context.Context, in Inputs, deps Deps, hw *hardware.Hardware,
 		}
 	default:
 		logger.Warn("No interface has a static address and NETWORK_CONFIG is unset; META network configuration will be skipped")
-	}
-
-	p.Overrides = talosconfig.Overrides{InstallImage: p.InstallerImage, KernelModules: detect.KernelModules(p.Facts)}
-
-	if cfg != nil && cfg.Found {
-		patched, patchDoc, err := talosconfig.Patch(hw.UserData(), p.Overrides)
-		if err != nil {
-			return nil, fmt.Errorf("applying overrides to spec.userData: %w", err)
-		}
-
-		p.PatchedUserData = &patched
-		p.ConfigPatch = patchDoc
-	} else {
-		if p.ConfigPatch, err = talosconfig.RenderPatch(p.Overrides); err != nil {
-			return nil, err
-		}
 	}
 
 	return p, nil
@@ -302,30 +227,7 @@ func execute(ctx context.Context, in Inputs, deps Deps, p *Plan) error {
 		logger.Info("Network configuration:\n" + string(p.NetworkDoc))
 	}
 
-	if in.Kubeconfig == "" {
-		logger.Warn("KUBECONFIG is not set; the Hardware is not updated with the installer image and overrides")
-	} else {
-		patcher, err := deps.Kube(in.Kubeconfig)
-		if err != nil {
-			return err
-		}
-
-		body, err := kube.BuildPatch(kube.PatchInput{InstallerImage: p.InstallerImage, ConfigPatch: p.ConfigPatch, UserData: p.PatchedUserData})
-		if err != nil {
-			return err
-		}
-
-		wbCtx, cancel := context.WithTimeout(ctx, apiTimeout)
-		defer cancel()
-
-		if err := patcher.PatchHardware(wbCtx, p.Hardware.Metadata.Namespace, p.Hardware.Metadata.Name, body); err != nil {
-			return err
-		}
-
-		logger.Info("Updated Hardware", "hardware", p.Hardware.Metadata.Namespace+"/"+p.Hardware.Metadata.Name, "installerImage", p.InstallerImage, "userDataPatched", p.PatchedUserData != nil)
-	}
-
-	logger.Info("Talos installed", "device", device, "schematic", p.SchematicID, "version", p.Version, "image", p.ImageURL, "installerImage", p.InstallerImage)
+	logger.Info("Talos installed", "device", device, "schematic", p.SchematicID, "version", p.Version, "image", p.ImageURL)
 
 	return nil
 }
@@ -345,12 +247,10 @@ func logPlan(logger *slog.Logger, in Inputs, p *Plan) {
 	}
 
 	logger.Info("Plan: install disk", "device", p.Disk.DevPath, "source", s.Disk.Source, "selector", selector, "path", s.Disk.Path, "candidates", diskPaths(p.Candidates))
-	logger.Info("Plan: schematic", "id", p.SchematicID, "extensions", p.Schematic.Extensions(), "bootloader", p.Schematic.Customization.Bootloader, "overlay", p.Schematic.Overlay != nil)
-	logger.Info("Plan: version", "version", p.Version, "source", s.VersionSource, "image", p.ImageURL, "installerImage", p.InstallerImage)
+	logger.Info("Plan: schematic", "id", p.SchematicID, "source", s.SchematicSource, "factory", s.FactoryURL, "factorySource", s.FactoryURLSource)
+	logger.Info("Plan: version", "version", p.Version, "source", s.VersionSource, "image", p.ImageURL)
 	logger.Info("Plan: kernel arguments", "args", p.KernelArgs, "linkNaming", linkNaming)
 	logger.Info("Plan: META network configuration", "write", len(p.NetworkDoc) > 0, "verbatim", in.NetworkConfig != "")
-	logger.Info("Plan: machine configuration overrides", "installImage", p.Overrides.InstallImage, "kernelModules", p.Overrides.KernelModules, "userDataPatched", p.PatchedUserData != nil)
-	logger.Info("Plan: Hardware write-back", "enabled", in.Kubeconfig != "", "hardware", p.Hardware.Metadata.Namespace+"/"+p.Hardware.Metadata.Name, "configuredSchematic", p.ConfiguredSchematicID, "droppedOnUpgradeWithoutWriteBack", p.DroppedOnUpgrade)
 }
 
 func warnUnknownDisk(logger *slog.Logger, hw *hardware.Hardware, d disks.Disk) {

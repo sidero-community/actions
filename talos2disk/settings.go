@@ -3,9 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
-	"github.com/sidero-community/actions/pkg/detect"
 	"github.com/sidero-community/actions/pkg/disks"
 	"github.com/sidero-community/actions/pkg/factory"
 	"github.com/sidero-community/actions/pkg/hardware"
@@ -25,33 +25,45 @@ type DiskChoice struct {
 // Settings are the resolved inputs of the install after the fall-through:
 // environment, then the machine configuration, then the Hardware, then defaults.
 type Settings struct {
-	Disk          DiskChoice
-	Version       string
-	VersionSource string
+	Disk             DiskChoice
+	SchematicID      string
+	SchematicSource  string
+	Version          string
+	VersionSource    string
+	FactoryURL       string
+	FactoryURLSource string
 	// KernelArgs is the config's extraKernelArgs with KERNEL_ARGS merged on top.
 	KernelArgs string
-	// Extensions are the explicit extensions: annotation plus EXTENSIONS.
-	Extensions []string
-	// NVIDIA are the extensions added when an NVIDIA GPU is detected.
-	NVIDIA  []string
-	Overlay *factory.Overlay
-	Network talosnet.Overrides
+	Network    talosnet.Overrides
 }
 
+var schematicID = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 func resolveSettings(in Inputs, hw *hardware.Hardware, cfg *talosconfig.Config) (Settings, error) {
-	var s Settings
+	var (
+		s   Settings
+		err error
+	)
 
-	disk, err := resolveDisk(in, hw, cfg)
-	if err != nil {
+	if s.Disk, err = resolveDisk(in, hw, cfg); err != nil {
 		return Settings{}, err
 	}
 
-	s.Disk = disk
+	var ref factory.InstallerReference
 
-	s.Version, s.VersionSource, err = resolveVersion(in, hw, cfg)
-	if err != nil {
+	if cfg != nil {
+		ref, _ = factory.ParseInstallerReference(cfg.Install.Image)
+	}
+
+	if s.SchematicID, s.SchematicSource, err = resolveSchematic(in, hw, ref); err != nil {
 		return Settings{}, err
 	}
+
+	if s.Version, s.VersionSource, err = resolveVersion(in, hw, cfg); err != nil {
+		return Settings{}, err
+	}
+
+	s.FactoryURL, s.FactoryURLSource = resolveFactoryURL(in, ref)
 
 	var configArgs string
 	if cfg != nil {
@@ -60,19 +72,6 @@ func resolveSettings(in Inputs, hw *hardware.Hardware, cfg *talosconfig.Config) 
 	}
 
 	s.KernelArgs = kargs.Merge(configArgs, in.KernelArgs)
-
-	s.Extensions = append(detect.SplitList(hw.Annotation(hardware.AnnotationExtensions)), detect.SplitList(in.Extensions)...)
-	s.NVIDIA = detect.SplitList(in.NVIDIAExtensions)
-
-	overlay := in.Overlay
-	if overlay == "" {
-		overlay = hw.Annotation(hardware.AnnotationOverlay)
-	}
-
-	s.Overlay, err = factory.ParseOverlay(overlay)
-	if err != nil {
-		return Settings{}, fmt.Errorf("overlay %q: %w", overlay, err)
-	}
 
 	return s, nil
 }
@@ -102,6 +101,28 @@ func resolveDisk(in Inputs, hw *hardware.Hardware, cfg *talosconfig.Config) (Dis
 	}
 }
 
+// resolveSchematic picks the schematic ID: SCHEMATIC_ID, the Factory installer reference in
+// machine.install.image, or the operating_system slug a resolver wrote on the Hardware.
+func resolveSchematic(in Inputs, hw *hardware.Hardware, ref factory.InstallerReference) (string, string, error) {
+	if in.SchematicID != "" {
+		if !schematicID.MatchString(in.SchematicID) {
+			return "", "", fmt.Errorf("SCHEMATIC_ID %q is not a 64-character hexadecimal schematic ID", in.SchematicID)
+		}
+
+		return in.SchematicID, "SCHEMATIC_ID", nil
+	}
+
+	if ref.ID != "" {
+		return ref.ID, "machine.install.image", nil
+	}
+
+	if slug := hw.OperatingSystemSlug(); slug != "" {
+		return slug, "metadata.instance.operating_system.slug", nil
+	}
+
+	return "", "", errors.New("no schematic: set SCHEMATIC_ID, or provide a Factory installer reference in machine.install.image, or metadata.instance.operating_system.slug on the Hardware")
+}
+
 func resolveVersion(in Inputs, hw *hardware.Hardware, cfg *talosconfig.Config) (string, string, error) {
 	candidates := []struct{ value, source string }{
 		{in.TalosVersion, "TALOS_VERSION"},
@@ -123,4 +144,18 @@ func resolveVersion(in Inputs, hw *hardware.Hardware, cfg *talosconfig.Config) (
 	}
 
 	return "", "", errors.New("no Talos version: set TALOS_VERSION, or provide machine.install.image, metadata.instance.operating_system.version or the talos.tinkerbell.org/contract annotation on the Hardware")
+}
+
+// resolveFactoryURL picks the Factory base URL: FACTORY_URL, the host of the installer
+// reference over https, or the public Factory.
+func resolveFactoryURL(in Inputs, ref factory.InstallerReference) (string, string) {
+	if in.FactoryURL != "" {
+		return strings.TrimRight(in.FactoryURL, "/"), "FACTORY_URL"
+	}
+
+	if ref.Host != "" {
+		return "https://" + ref.Host, "machine.install.image"
+	}
+
+	return factory.DefaultURL, "default"
 }

@@ -148,3 +148,13 @@ func (h *Hardware) FirstDisk() string {
 
 	return ""
 }
+
+// OperatingSystemSlug returns metadata.instance.operating_system.slug, the schematic ID a
+// resolver may have written onto the Hardware, or "".
+func (h *Hardware) OperatingSystemSlug() string {
+	if h.Spec.Metadata == nil || h.Spec.Metadata.Instance == nil || h.Spec.Metadata.Instance.OperatingSystem == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(h.Spec.Metadata.Instance.OperatingSystem.Slug)
+}
