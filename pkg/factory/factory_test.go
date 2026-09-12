@@ -147,17 +147,23 @@ func TestNewClientRejectsBadURL(t *testing.T) {
 }
 
 func TestParseInstallerReference(t *testing.T) {
-	for ref, want := range map[string]string{
-		"factory.talos.dev/metal-installer/" + testID + ":v1.14.1": testID,
-		"factory.talos.dev/installer/" + testID + ":v1.14.1":       testID,
-		"factory.example.test/metal-installer/" + testID:           testID,
-		"ghcr.io/siderolabs/installer:v1.14.1":                     "",
-		"factory.talos.dev/metal-installer/short:v1.14.1":          "",
-		"": "",
-	} {
-		id, ok := ParseInstallerReference(ref)
-		if id != want || ok != (want != "") {
-			t.Errorf("ParseInstallerReference(%q) = %q, %v", ref, id, ok)
+	tests := []struct {
+		ref  string
+		want InstallerReference
+		ok   bool
+	}{
+		{"factory.talos.dev/metal-installer/" + testID + ":v1.14.1", InstallerReference{Host: "factory.talos.dev", ID: testID, Tag: "v1.14.1"}, true},
+		{"factory.talos.dev/installer/" + testID + ":v1.14.1", InstallerReference{Host: "factory.talos.dev", ID: testID, Tag: "v1.14.1"}, true},
+		{"factory.example.test:8443/metal-installer/" + testID, InstallerReference{Host: "factory.example.test:8443", ID: testID}, true},
+		{"factory.talos.dev/metal-installer/" + testID + ":v1.14.1@sha256:abcd", InstallerReference{Host: "factory.talos.dev", ID: testID, Tag: "v1.14.1"}, true},
+		{"ghcr.io/siderolabs/installer:v1.14.1", InstallerReference{}, false},
+		{"factory.talos.dev/metal-installer/short:v1.14.1", InstallerReference{}, false},
+		{"", InstallerReference{}, false},
+	}
+	for _, tt := range tests {
+		got, ok := ParseInstallerReference(tt.ref)
+		if ok != tt.ok || got != tt.want {
+			t.Errorf("ParseInstallerReference(%q) = %+v, %v; want %+v, %v", tt.ref, got, ok, tt.want, tt.ok)
 		}
 	}
 }

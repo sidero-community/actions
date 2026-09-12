@@ -145,15 +145,25 @@ func (c *Client) do(req *http.Request) ([]byte, error) {
 	return raw, nil
 }
 
-var installerReference = regexp.MustCompile(`^[^/]+/(?:metal-installer|installer)/([0-9a-f]{64})(?::[^@/]+)?(?:@.*)?$`)
+var installerReference = regexp.MustCompile(`^([^/]+)/(?:metal-installer|installer)/([0-9a-f]{64})(?::([^@/]+))?(?:@.*)?$`)
 
-// ParseInstallerReference extracts the schematic ID from a Factory installer
-// reference such as factory.talos.dev/metal-installer/<id>:<version>.
-func ParseInstallerReference(ref string) (string, bool) {
+// InstallerReference is a parsed Image Factory installer reference such as
+// factory.talos.dev/metal-installer/<schematic id>:<version>.
+type InstallerReference struct {
+	// Host is the registry host, which is also the Factory's host.
+	Host string
+	// ID is the 64-hex-character schematic ID.
+	ID string
+	// Tag is the image tag, normally a Talos version; empty when the reference has none.
+	Tag string
+}
+
+// ParseInstallerReference recognises Factory installer references and returns their parts.
+func ParseInstallerReference(ref string) (InstallerReference, bool) {
 	m := installerReference.FindStringSubmatch(strings.TrimSpace(ref))
 	if m == nil {
-		return "", false
+		return InstallerReference{}, false
 	}
 
-	return m[1], true
+	return InstallerReference{Host: m[1], ID: m[2], Tag: m[3]}, true
 }
