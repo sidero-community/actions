@@ -21,7 +21,9 @@ waitdaemon reboot. `talos2disk` runs inside the OSIE on the target machine and
 5. streams the Factory's raw metal image onto the disk,
 6. stamps kernel arguments into the UKI command lines,
 7. writes the Talos network configuration to the META partition,
-8. exits. Rebooting stays a separate action.
+8. writes the resulting install image and machine configuration overrides back
+   to the Hardware object through the Kubernetes API,
+9. exits. Rebooting stays a separate action.
 
 Every setting falls through a fixed chain: explicit environment, then the
 Talos machine configuration in `spec.userData`, then the rest of the Hardware
@@ -40,7 +42,8 @@ published the same way upstream actions are.
 | Who determines the schematic | The action, always, from machine detection plus the Hardware annotations. It registers the schematic with the Factory itself. `machine.install.image` in the config contributes only its version tag. |
 | Talos version source | `TALOS_VERSION` env, else the tag of `machine.install.image`, else `metadata.instance.operating_system.version`, else the `talos.tinkerbell.org/contract` annotation. Full versions are used exactly; a bare minor resolves to the newest non-broken patch via the Factory. |
 | Disk selector | Talos `machine.install.diskSelector` shape everywhere: `DISK_SELECTOR` env, else the config's `diskSelector`, else the config's `disk` path, else `spec.disks[0].device`, else `{ "size": ">= 100GB" }`. Multiple matches pick the first by device name, as Talos does. |
-| Detection rules | NVMe present, CPU vendor, display-class PCI vendor, architecture. Local probes first, `status.attributes.outOfBand` as fallback. |
+| Detection rules | NVMe present, CPU vendor, display-class PCI vendor, architecture. Local probes first, `status.attributes.outOfBand` as fallback. An NVIDIA GPU adds the open-kernel-module production extensions and a `machine.kernel.modules` override. |
+| Write-back | talos2disk itself patches the Hardware (no separate kubectl action) using the kubeconfig at `KUBECONFIG`: annotations `talos.tinkerbell.org/installer-image`, `talos.tinkerbell.org/config-patch` and `talos.tinkerbell.org/userdata-owner=talos2disk`, plus `spec.userData` rewritten with the real `machine.install.image` and the overrides. CAPT is taught to leave userData alone when the owner annotation is present and the resolver to leave the installer-image annotation alone; both are follow-up tasks in the plan. |
 | Hardware data | Passed by the Template as one `HARDWARE` env var holding the Hardware object as JSON (`.hardware | toJson`), including `spec.userData` and `status.attributes.outOfBand`. No metadata-service round trip and no tootles change. |
 | Kernel arguments | Stamped into the UKI after the write, merging the config's `machine.install.extraKernelArgs` under `KERNEL_ARGS`. The schematic carries no `extraKernelArgs`. |
 | Structure | New repository, three actions, shared code under `pkg/`. |
@@ -57,6 +60,8 @@ published the same way upstream actions are.
 | `KERNEL_ARGS` | no | empty | Whitespace-separated arguments merged into every `EFI/Linux/Talos-*.efi` command line after the config's `extraKernelArgs`. Deploy-level values belong here: `talos.config=…`, `net.ifnames=0`, consoles. |
 | `EXTENSIONS` | no | | Comma-separated official extensions merged into the schematic. |
 | `OVERLAY` | no | | `name@image`. Overrides the `talos.tinkerbell.org/overlay` annotation. |
+| `NVIDIA_EXTENSIONS` | no | `siderolabs/nvidia-open-gpu-kernel-modules-production,siderolabs/nvidia-container-toolkit-production` | Extensions added when an NVIDIA GPU is detected. Set to the `nonfree-kmod-nvidia-production` pair for pre-Turing GPUs, or empty to add none. |
+| `KUBECONFIG` | no | | Path of a kubeconfig, typically `/shared/kubeconfig` from the `/var/lib/tink/shared` volume. When set, the Hardware is patched after the install; when unset, the write-back is skipped with a warning. |
 | `FACTORY_URL` | no | `https://factory.talos.dev` | Image Factory base URL. |
 | `NETWORK_CONFIG` | no | | Complete Talos network configuration document written verbatim to META key `0xa`, bypassing the Hardware mapping. |
 | `LINK_NAMING` | no | inferred | `kernel` or `predictable`. When unset, `kernel` if the final command line contains `net.ifnames=0`, else `predictable`. |
@@ -116,7 +121,8 @@ Every remote call and every decision happens before the first byte is written.
 7. Re-read the GPT and locate the `EFI` and `META` partitions by label. Fail if either is missing.
 8. If the merged kernel arguments are non-empty, obtain the EFI partition device node, mount it as vfat, and merge them into every matching UKI.
 9. Build the network document and write META key `0xa`. When no document results (no `NETWORK_CONFIG` and no interface with a static address), log a warning and skip.
-10. Log a summary: disk, schematic ID and extensions, version, image URL, resulting command lines, network document. Exit 0.
+10. Write back to the Hardware when `KUBECONFIG` is set: one JSON merge patch carrying the three annotations and, when `userData` held a machine configuration, the patched `spec.userData`. See "Machine configuration overrides and Hardware write-back".
+11. Log a summary: disk, schematic ID and extensions, version, image URL, resulting command lines, network document, write-back result. Exit 0.
 
 ## Disk selection
 
@@ -159,7 +165,7 @@ overlay:                     # only when an overlay is configured
 | Architecture | the action's own `GOARCH` | none | `metal-<arch>` image path; `bootloader: sd-boot` on arm64. |
 | NVMe | any enumerated disk with transport `nvme` | `blockDevices[]` with an NVMe controller or drive type | `siderolabs/nvme-cli` |
 | CPU vendor | `vendor_id` in `/proc/cpuinfo` | `cpu.sockets[].vendor` | Intel → `siderolabs/intel-ucode`; AMD → `siderolabs/amd-ucode`. arm64 has no `vendor_id` and gets no microcode extension. |
-| Display-class PCI device | `/sys/bus/pci/devices/*/class` starting `0x03`, with `vendor` | `gpuDevices[].vendor` | AMD (`0x1002`) → `siderolabs/amdgpu`; Intel (`0x8086`) → `siderolabs/i915`. NVIDIA (`0x10de`) is logged and not added, since its extension variants are a deployment choice. |
+| Display-class PCI device | `/sys/bus/pci/devices/*/class` starting `0x03`, with `vendor` | `gpuDevices[].vendor` | AMD (`0x1002`) → `siderolabs/amdgpu`; Intel (`0x8086`) → `siderolabs/i915`; NVIDIA (`0x10de`) → the `NVIDIA_EXTENSIONS` list (default `siderolabs/nvidia-open-gpu-kernel-modules-production`, `siderolabs/nvidia-container-toolkit-production`) plus the kernel-modules override below. |
 | Explicit | `talos.tinkerbell.org/system-extensions` annotation and `EXTENSIONS` | | merged |
 | Overlay | `OVERLAY`, else the `talos.tinkerbell.org/overlay` annotation | | `overlay.name` and `overlay.image` |
 
@@ -189,6 +195,37 @@ The UKI step is the existing taloscmdline behaviour behind `pkg/cmdline`: mount 
 
 The META step is the existing talosmeta behaviour with the fall-through above for hostname, resolvers and time servers: `NETWORK_CONFIG` is validated and written verbatim, otherwise `interfaces[]` and `metadata.instance` map onto the Talos metal platform network configuration on the `platform` layer, and the document is stored under key `0xa` with every other key preserved. Interface names resolve through `iface_name`, else the sysfs lookup by MAC with kernel or predictable naming. The naming mode is inferred from the final command line unless `LINK_NAMING` overrides it.
 
+## Machine configuration overrides and Hardware write-back
+
+Detection can require machine configuration that the cluster's templates cannot know. The action expresses these as **overrides** on the v1alpha1 document:
+
+| Trigger | Override |
+| --- | --- |
+| Always | `machine.install.image` = `<FACTORY_URL host>/metal-installer/<schematic ID>:<version>`, so the node's own configuration names the schematic it was installed from and upgrades through `talosctl upgrade` or CABPT reuse it. |
+| NVIDIA GPU detected | `machine.kernel.modules` gains `nvidia`, `nvidia_uvm`, `nvidia_drm`, `nvidia_modeset` (existing entries kept, names deduplicated). |
+
+`pkg/talosconfig` applies the overrides to the original `userData` as a YAML node edit: every other document and field is preserved byte-for-byte where the YAML library allows, and the multi-document layout is kept. The overrides alone are also rendered as a standalone YAML patch document (`machine: {install: {image: …}, kernel: {modules: […]}}`).
+
+After the disk is complete, when `KUBECONFIG` is set, the action sends one JSON merge patch to `PATCH /apis/tinkerbell.org/v1alpha1/namespaces/<metadata.namespace>/hardware/<metadata.name>` with field manager `talos2disk`:
+
+```json
+{
+  "metadata": {"annotations": {
+    "talos.tinkerbell.org/installer-image": "factory.talos.dev/metal-installer/<id>:<version>",
+    "talos.tinkerbell.org/config-patch": "<overrides YAML>",
+    "talos.tinkerbell.org/userdata-owner": "talos2disk"
+  }},
+  "spec": {"userData": "<patched machine configuration>"}
+}
+```
+
+The `spec.userData` member is present only when the Hardware carried a machine configuration. The patch is atomic, so CAPT sees the owner annotation and the new userData together. The Kubernetes client is client-go's dynamic client over the kubeconfig; the kubeconfig's identity needs `get` and `patch` on `hardware.tinkerbell.org`. A failed write-back exits non-zero after the disk has been written; re-running the action rewrites the disk and retries the patch. `DRY_RUN` never patches.
+
+Controller side, tracked as plan tasks in their own repositories:
+
+- **CAPT** `ensureHardwareUserData` returns without writing when the Hardware has `talos.tinkerbell.org/userdata-owner: talos2disk`, so the action's userData survives reconciles.
+- **runtime-extensions resolver** leaves `talos.tinkerbell.org/installer-image` untouched when the Hardware has `talos.tinkerbell.org/userdata-owner: talos2disk`, so the upgrade rendezvous names the schematic that was installed.
+
 ## Workflow Template in the runtime-extensions chart
 
 `files/talos-install-template.yaml` becomes two actions. The reboot action is unchanged.
@@ -198,12 +235,17 @@ actions:
   - name: "Install Talos"
     image: __ACTIONS_REPOSITORY__/talos2disk:__ACTIONS_TAG__
     timeout: 9600
+    volumes:
+      - /var/lib/tink/shared:/shared
     environment:
       HARDWARE: {{ dict "metadata" (pick .hardware.metadata "name" "namespace" "labels" "annotations") "spec" .hardware.spec "status" (dig "status" (dict) .hardware) | toJson | quote }}
       KERNEL_ARGS: "console=tty0 console=ttyAMA0,115200 net.ifnames=0 talos.config=__TOOTLES_USER_DATA_URL__"
+      KUBECONFIG: /shared/kubeconfig
   - name: "reboot"
     # unchanged waitdaemon action
 ```
+
+The kubeconfig at `/var/lib/tink/shared/kubeconfig` on the OSIE host is provisioned outside this design (pre-baked into the OSIE or injected at boot); the action only requires that the file exists and can `get` and `patch` Hardware.
 
 `.hardware` is the whole Hardware object keyed by JSON field names, so it carries `spec.userData` and `status.attributes.outOfBand`; the legacy `.Hardware` struct carries neither status nor annotations and is not used. `pick` drops `managedFields` and the other bulky object metadata. `toJson | quote` yields a YAML double-quoted scalar, the form the talosmeta Template already used. tink caps a rendered Template at 256 KiB and Linux caps a single environment string at 128 KiB; a Hardware with a Talos configuration and a full Redfish inventory is tens of KiB, so both hold, and the action fails with a clear message if `HARDWARE` is missing or truncated. Host networking is no longer required; the chart may keep it for the download.
 
@@ -220,7 +262,8 @@ Scaffolding adapted from `tinkerbell/actions`: `Makefile` (`ACTIONS := talos2dis
 | Path | Origin | Contents |
 | --- | --- | --- |
 | `pkg/hardware` | moved from talosmeta, extended | Hardware object types: `metadata` (name, namespace, labels, annotations), `spec` (interfaces, disks, metadata.instance, userData), `status.attributes.outOfBand` (CPU sockets, GPU devices, block devices). `Fetch` stays for talosmeta's `MIRROR_HOST` path. |
-| `pkg/talosconfig` | new | Minimal v1alpha1 machine configuration parser: multi-document split, `machine.install`, `machine.network.hostname`/`nameservers`, `machine.time.servers`, installer reference parsing. |
+| `pkg/talosconfig` | new | Minimal v1alpha1 machine configuration parser: multi-document split, `machine.install`, `machine.network.hostname`/`nameservers`, `machine.time.servers`, installer reference parsing; `Patch` applies the install-image and kernel-module overrides to the original document and renders the standalone override patch. |
+| `pkg/kube` | new | Hardware merge patch through client-go's dynamic client from a kubeconfig path; builds the annotation and userData patch body. |
 | `pkg/talosnet` | moved, extended | Network document mapping with hostname, resolver and time server overrides; the sysfs link namer. |
 | `pkg/meta` | moved | META partition location and tag read/write via go-adv. |
 | `pkg/uki`, `pkg/kargs` | moved | UKI `.cmdline` rewrite with the `ukitest` builder; argument merging. |
@@ -234,7 +277,7 @@ Scaffolding adapted from `tinkerbell/actions`: `Makefile` (`ACTIONS := talos2dis
 | `taloscmdline/`, `talosmeta/` | moved | Thin mains over `pkg/`, unchanged environment contracts, `Dockerfile`, `README.md`. |
 | `docs/superpowers/specs/` | | This document plus the two existing action specs with paths corrected. |
 
-Dependencies beyond those the two existing actions already use: `github.com/siderolabs/go-blockdevice/v2`, `github.com/ryanuber/go-glob`, `github.com/dustin/go-humanize`, `github.com/klauspost/compress` (zstd). No CEL engine and no Talos machinery module: the structured selector and the configuration subset are matched and parsed directly.
+Dependencies beyond those the two existing actions already use: `github.com/siderolabs/go-blockdevice/v2`, `github.com/ryanuber/go-glob`, `github.com/dustin/go-humanize`, `github.com/klauspost/compress` (zstd), `k8s.io/client-go` and `k8s.io/apimachinery` (dynamic client and kubeconfig loading). No CEL engine and no Talos machinery module: the structured selector and the configuration subset are matched and parsed directly.
 
 Logging is `slog` text to stdout, as in the existing actions.
 
@@ -242,7 +285,7 @@ Logging is `slog` text to stdout, as in the existing actions.
 
 Before the write, every failure exits non-zero with the disk untouched: missing or unparsable `HARDWARE`, unparsable `userData`, unparsable selector, no matching disk, Factory rejection, unresolvable version. `DRY_RUN` stops at the same point on success.
 
-After the write, a partition-table, UKI or META failure exits non-zero and leaves a written but unfinished disk. Re-running the action is safe: every step rewrites its output in full. Unmount failures are logged, not fatal, as in taloscmdline.
+After the write, a partition-table, UKI, META or write-back failure exits non-zero and leaves a written but unfinished disk. Re-running the action is safe: every step rewrites its output in full and the Hardware patch is idempotent. Unmount failures are logged, not fatal, as in taloscmdline. A missing `KUBECONFIG` skips the write-back with a warning rather than failing, so bench runs and `DRY_RUN` need no cluster access.
 
 ## Testing
 
@@ -255,6 +298,8 @@ Unit tests per package, run with `go test -race ./...`:
 - `pkg/image`: httptest-served zstd blob written to a temp file, redirect following, retry on a failing first attempt.
 - `pkg/partition`: node naming, wait, and the sysfs major:minor fallback against a fake tree.
 - `pkg/talosnet`: the hostname, resolver and time server overrides on top of the existing mapping tests.
+- `pkg/talosconfig` `Patch`: install image replaced, kernel modules appended without duplicates, other documents and fields preserved, standalone patch rendering.
+- `pkg/kube`: patch body construction with and without userData; `PatchHardware` against an httptest API server asserting the path, content type, field manager and body.
 - Moved packages keep their existing tests.
 - `talos2disk`: fall-through tables for every setting, and a pipeline test with fake prober, fake mounter and an httptest Factory against a diskfs-built GPT image holding `EFI` and `META` partitions; asserts the plan, the written image bytes, the META tag and the merged command lines. A `DRY_RUN` case asserts the disk is untouched.
 
@@ -264,8 +309,8 @@ Manual validation before switching the Template: `DRY_RUN` on a real machine thr
 
 ## Out of scope and follow-ups
 
-- **Upgrade-path drift.** The schematic the action registers includes microcode and GPU extensions that the runtime-extensions resolver cannot detect, so `machine.install.image` and the resolver's `talos.tinkerbell.org/installer-image` annotation name a smaller schematic. An upgrade through that installer drops the detected extensions. The action logs the difference at install time; closing the gap (reading `ImageFactorySchematic` from the node, or teaching the resolver the same rules from `status.attributes.outOfBand`) is tracked in runtime-extensions.
+- **Controller consumption of the write-back.** The CAPT yield and the resolver yield are plan tasks. CABPT's in-place update path still applies CABPT-rendered configuration to a running node, which would drop the overrides and the install image; merging the `talos.tinkerbell.org/config-patch` annotation into what CABPT renders is a CABPT follow-up.
 - **Extensions requested on the TinkerbellMachine** are not on the Hardware object; they must be set on the Hardware annotation or in `EXTENSIONS`.
 - **The taloscmdline and talosmeta copies in the tinkerbell-community/actions fork** become redundant once this repository publishes images; removing them is a separate cleanup.
 - **talosmeta's `MIRROR_HOST` path** still depends on tootles exposing interfaces on `/metadata`, as its README states. Unchanged here.
-- Secure Boot images, NVIDIA extension selection, image checksum verification, and OCI image sources are not handled.
+- Secure Boot images, image checksum verification, and OCI image sources are not handled.
